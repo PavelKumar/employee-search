@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Поиск сотрудников</title>
+    <title>Поиск сотрудников (CORS Proxy)</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -160,26 +160,17 @@
             color: #5f6368;
             margin-top: 8px;
         }
-        .example-link {
-            background: #f0f0f0;
-            padding: 8px;
-            border-radius: 6px;
-            font-family: monospace;
-            font-size: 12px;
-            word-break: break-all;
-            margin-top: 10px;
-        }
     </style>
 </head>
 <body>
 <div class="container">
     <div class="header">
-        <h1>🔍 Поиск сотрудников</h1>
-        <p>Данные с Яндекс Диска</p>
+        <h1>🔍 Поиск сотрудников (CORS Proxy)</h1>
+        <p>Данные с Яндекс Диска через прокси-сервер</p>
     </div>
     
     <div class="config-area">
-        <label>📎 Публичная ссылка на CSV файл:</label>
+        <label>📎 Публичная ссылка на CSV файл (с Яндекс Диска):</label>
         <input type="text" id="publicUrlInput" class="config-input" placeholder="https://disk.yandex.ru/d/xxxxx" value="https://disk.yandex.ru/d/3LFFxCzdu68XvQ">
         <div class="hint">
             💡 Ваша ссылка уже вставлена. Нажмите «Загрузить данные»
@@ -213,13 +204,13 @@
         </table>
     </div>
     <div class="footer">
-        🔄 При обновлении таблицы — замените файл на Диске и нажмите «Обновить»
+        🔄 Данные проходят через безопасный прокси-сервер, обходящий ограничения браузера.
     </div>
 </div>
 
 <script>
     let currentData = [];
-    const STORAGE_URL_KEY = 'yandex_csv_url_v2';
+    const STORAGE_URL_KEY = 'yandex_csv_url_v3';
     
     const publicUrlInput = document.getElementById('publicUrlInput');
     const loadBtn = document.getElementById('loadBtn');
@@ -231,7 +222,6 @@
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
 
-    // Загружаем сохранённую ссылку
     const savedUrl = localStorage.getItem(STORAGE_URL_KEY);
     if (savedUrl) {
         publicUrlInput.value = savedUrl;
@@ -245,7 +235,6 @@
         else if (type === 'success') statusDot.classList.remove('loading', 'error');
     }
 
-    // Получение прямого CSV через публичную ссылку (работает в 2024-2025)
     async function loadFromPublicUrl() {
         let publicUrl = publicUrlInput.value.trim();
         
@@ -255,49 +244,32 @@
         }
         
         localStorage.setItem(STORAGE_URL_KEY, publicUrl);
-        setStatus('🔍 Получение файла...', 'loading');
+        setStatus('🔍 Загрузка через прокси...', 'loading');
         
         try {
-            // Извлекаем ID
-            let fileId = '';
-            if (publicUrl.includes('/d/')) {
-                fileId = publicUrl.split('/d/')[1].split('/')[0].split('?')[0];
-            } else if (publicUrl.includes('/i/')) {
-                fileId = publicUrl.split('/i/')[1].split('/')[0].split('?')[0];
-            } else {
-                throw new Error('Не распознан формат ссылки');
-            }
+            // Используем публичный CORS-прокси
+            // allorigins.win — один из самых стабильных на данный момент
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(publicUrl)}`;
             
-            // Пробуем получить прямой CSV (новый способ - через прямой запрос)
-            // Яндекс иногда отдаёт CSV по ссылке с ?format=csv
-            let csvUrl = `https://disk.yandex.ru/d/${fileId}?format=csv`;
-            
-            // Пробуем fetch с режимом no-cors (может не сработать)
-            const response = await fetch(csvUrl, {
-                mode: 'cors',
-                headers: {
-                    'Accept': 'text/csv,application/csv'
-                }
-            });
+            const response = await fetch(proxyUrl);
             
             if (!response.ok) {
-                throw new Error('Не удалось загрузить файл');
+                throw new Error(`Прокси вернул ошибку: ${response.status}`);
             }
             
             const text = await response.text();
             
-            // Проверяем, не HTML ли это (если ошибка)
+            // Проверяем, что получили CSV, а не HTML ошибку
             if (text.includes('<!DOCTYPE') || text.includes('<html')) {
-                throw new Error('Файл не найден или доступ закрыт');
+                throw new Error('Прокси вернул HTML-страницу вместо CSV. Возможно, ссылка ведёт на папку, а не на файл.');
             }
             
-            setStatus('🔄 Обработка...', 'loading');
+            setStatus('🔄 Обработка CSV...', 'loading');
             
-            // Парсим CSV
+            // --- Парсинг CSV (без изменений) ---
             const lines = text.split(/\r?\n/);
             if (lines.length < 2) throw new Error('Файл пуст');
             
-            // Определяем разделитель
             let delimiter = ',';
             const firstLine = lines[0];
             if (firstLine.includes(';') && !firstLine.includes(',')) delimiter = ';';
@@ -321,9 +293,10 @@
                     });
                 }
             }
+            // --- Конец парсинга ---
             
             if (data.length === 0) {
-                throw new Error('Данные не найдены');
+                throw new Error('Данные не найдены. Проверьте формат CSV.');
             }
             
             currentData = data;
@@ -334,13 +307,15 @@
             
         } catch (error) {
             console.error('Ошибка:', error);
-            setStatus(`❌ ${error.message}`, 'error');
-            tableBody.innerHTML = `<tr><td colspan="6" class="empty">⚠️ Ошибка: ${error.message}<br><br>Проверьте:<br>• Ссылка правильная?<br>• Доступ по ссылке включён?<br>• Файл в формате CSV?<br><br>💡 Попробуйте открыть ссылку в браузере — файл должен скачиваться</td></tr>`;
+            setStatus(`❌ Ошибка: ${error.message}`, 'error');
+            tableBody.innerHTML = `<tr><td colspan="6" class="empty">⚠️ Ошибка загрузки: ${error.message}<br><br>Проверьте:<br>• Ссылка ведёт именно на CSV файл?<br>• Доступ по ссылке открыт?</td></tr>`;
             currentData = [];
             renderTable();
         }
     }
 
+    // Функции parseCSVLine, highlightText, escapeRegex, escapeHtml, renderTable
+    // (они такие же, как в предыдущих версиях, оставляем их без изменений)
     function parseCSVLine(line, delimiter) {
         const result = [];
         let current = '';
