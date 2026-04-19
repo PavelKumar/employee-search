@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Поиск сотрудников (CORS Proxy)</title>
+    <title>Поиск сотрудников — данные из репозитория</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -165,22 +165,22 @@
 <body>
 <div class="container">
     <div class="header">
-        <h1>🔍 Поиск сотрудников (CORS Proxy)</h1>
-        <p>Данные с Яндекс Диска через прокси-сервер</p>
+        <h1>🔍 Поиск сотрудников</h1>
+        <p>Данные из репозитория (обновляются по кнопке)</p>
     </div>
     
     <div class="config-area">
-        <label>📎 Публичная ссылка на CSV файл (с Яндекс Диска):</label>
-        <input type="text" id="publicUrlInput" class="config-input" placeholder="https://disk.yandex.ru/d/xxxxx" value="https://disk.yandex.ru/d/3LFFxCzdu68XvQ">
+        <label>📎 Имя CSV файла в репозитории:</label>
+        <input type="text" id="csvFileName" class="config-input" placeholder="employees.csv" value="employees.csv">
         <div class="hint">
-            💡 Ваша ссылка уже вставлена. Нажмите «Загрузить данные»
+            💡 Положите файл с данными в формате CSV в ту же папку, что и этот HTML
         </div>
     </div>
 
     <div class="status-bar">
         <div class="status">
             <div class="status-dot" id="statusDot"></div>
-            <span id="statusText">Нажмите «Загрузить данные»</span>
+            <span id="statusText">Введите имя файла и нажмите «Загрузить»</span>
         </div>
         <button class="btn" id="loadBtn">📥 Загрузить данные</button>
         <button class="btn btn-outline" id="refreshBtn" style="display:none;">🔄 Обновить</button>
@@ -199,20 +199,20 @@
                 <tr><th>№ п/п</th><th>ФИО</th><th>Тип</th><th>Год документа</th><th>Короб</th><th>ЮЛ</th></tr>
             </thead>
             <tbody id="tableBody">
-                <tr><td colspan="6" class="empty">📌 Нажмите «Загрузить данные»</td></tr>
+                <tr><td colspan="6" class="empty">📌 Укажите имя CSV файла и нажмите «Загрузить»</td></tr>
             </tbody>
         </table>
     </div>
     <div class="footer">
-        🔄 Данные проходят через безопасный прокси-сервер, обходящий ограничения браузера.
+        💾 Данные загружаются из файла в репозитории. Обновите CSV на GitHub — и нажмите «Обновить».
     </div>
 </div>
 
 <script>
     let currentData = [];
-    const STORAGE_URL_KEY = 'yandex_csv_url_v3';
+    const STORAGE_FILENAME_KEY = 'csv_filename';
     
-    const publicUrlInput = document.getElementById('publicUrlInput');
+    const csvFileNameInput = document.getElementById('csvFileName');
     const loadBtn = document.getElementById('loadBtn');
     const refreshBtn = document.getElementById('refreshBtn');
     const searchInput = document.getElementById('searchInput');
@@ -222,9 +222,10 @@
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
 
-    const savedUrl = localStorage.getItem(STORAGE_URL_KEY);
-    if (savedUrl) {
-        publicUrlInput.value = savedUrl;
+    // Загружаем сохранённое имя файла
+    const savedFileName = localStorage.getItem(STORAGE_FILENAME_KEY);
+    if (savedFileName) {
+        csvFileNameInput.value = savedFileName;
     }
 
     function setStatus(text, type = 'loading') {
@@ -235,45 +236,42 @@
         else if (type === 'success') statusDot.classList.remove('loading', 'error');
     }
 
-    async function loadFromPublicUrl() {
-        let publicUrl = publicUrlInput.value.trim();
+    async function loadFromRepo() {
+        let fileName = csvFileNameInput.value.trim();
         
-        if (!publicUrl) {
-            setStatus('❌ Введите публичную ссылку', 'error');
+        if (!fileName) {
+            setStatus('❌ Введите имя CSV файла', 'error');
             return;
         }
         
-        localStorage.setItem(STORAGE_URL_KEY, publicUrl);
-        setStatus('🔍 Загрузка через прокси...', 'loading');
+        // Добавляем .csv если не указано
+        if (!fileName.endsWith('.csv')) {
+            fileName += '.csv';
+            csvFileNameInput.value = fileName;
+        }
+        
+        localStorage.setItem(STORAGE_FILENAME_KEY, fileName);
+        setStatus(`🔍 Загрузка ${fileName}...`, 'loading');
         
         try {
-            // Используем публичный CORS-прокси
-            // allorigins.win — один из самых стабильных на данный момент
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(publicUrl)}`;
-            
-            const response = await fetch(proxyUrl);
+            // Загружаем файл из текущей директории репозитория
+            const response = await fetch(fileName);
             
             if (!response.ok) {
-                throw new Error(`Прокси вернул ошибку: ${response.status}`);
+                throw new Error(`Файл не найден (${response.status})`);
             }
             
             const text = await response.text();
             
-            // Проверяем, что получили CSV, а не HTML ошибку
-            if (text.includes('<!DOCTYPE') || text.includes('<html')) {
-                throw new Error('Прокси вернул HTML-страницу вместо CSV. Возможно, ссылка ведёт на папку, а не на файл.');
-            }
-            
             setStatus('🔄 Обработка CSV...', 'loading');
             
-            // --- Парсинг CSV (без изменений) ---
+            // Парсим CSV
             const lines = text.split(/\r?\n/);
             if (lines.length < 2) throw new Error('Файл пуст');
             
             let delimiter = ',';
             const firstLine = lines[0];
             if (firstLine.includes(';') && !firstLine.includes(',')) delimiter = ';';
-            else if (firstLine.includes('\t')) delimiter = '\t';
             
             const data = [];
             for (let i = 1; i < lines.length; i++) {
@@ -293,29 +291,26 @@
                     });
                 }
             }
-            // --- Конец парсинга ---
             
             if (data.length === 0) {
-                throw new Error('Данные не найдены. Проверьте формат CSV.');
+                throw new Error('Данные не найдены');
             }
             
             currentData = data;
-            setStatus(`✅ Загружено ${data.length} записей`, 'success');
+            setStatus(`✅ Загружено ${data.length} записей из ${fileName}`, 'success');
             refreshBtn.style.display = 'inline-block';
             searchInput.disabled = false;
             renderTable();
             
         } catch (error) {
             console.error('Ошибка:', error);
-            setStatus(`❌ Ошибка: ${error.message}`, 'error');
-            tableBody.innerHTML = `<tr><td colspan="6" class="empty">⚠️ Ошибка загрузки: ${error.message}<br><br>Проверьте:<br>• Ссылка ведёт именно на CSV файл?<br>• Доступ по ссылке открыт?</td></tr>`;
+            setStatus(`❌ ${error.message}`, 'error');
+            tableBody.innerHTML = `<tr><td colspan="6" class="empty">⚠️ Ошибка: ${error.message}<br><br>Проверьте:<br>• Файл ${fileName} загружен в репозиторий?<br>• Имя файла написано правильно?<br>• Файл в формате CSV?</td></tr>`;
             currentData = [];
             renderTable();
         }
     }
 
-    // Функции parseCSVLine, highlightText, escapeRegex, escapeHtml, renderTable
-    // (они такие же, как в предыдущих версиях, оставляем их без изменений)
     function parseCSVLine(line, delimiter) {
         const result = [];
         let current = '';
@@ -352,7 +347,7 @@
 
     function renderTable() {
         if (currentData.length === 0) {
-            if (!tableBody.innerHTML.includes('Ошибка') && !tableBody.innerHTML.includes('Нажмите')) {
+            if (!tableBody.innerHTML.includes('Ошибка') && !tableBody.innerHTML.includes('Укажите')) {
                 tableBody.innerHTML = '<tr><td colspan="6" class="empty">📁 Нет данных</td></tr>';
             }
             totalSpan.textContent = '0';
@@ -396,8 +391,8 @@
         tableBody.innerHTML = html;
     }
 
-    loadBtn.addEventListener('click', loadFromPublicUrl);
-    refreshBtn.addEventListener('click', loadFromPublicUrl);
+    loadBtn.addEventListener('click', loadFromRepo);
+    refreshBtn.addEventListener('click', loadFromRepo);
     searchInput.addEventListener('input', renderTable);
 </script>
 </body>
