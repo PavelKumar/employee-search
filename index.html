@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Поиск сотрудников</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: #1a73e8;
+            color: white;
+            padding: 20px 24px;
+        }
+        .header h1 { margin: 0 0 8px 0; font-size: 24px; }
+        .header p { margin: 0; opacity: 0.9; font-size: 14px; }
+        .status-bar {
+            background: #f8f9fa;
+            padding: 12px 24px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .status {
+            font-size: 13px;
+            color: #5f6368;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #28a745;
+        }
+        .status-dot.loading { background: #ffc107; animation: pulse 1s infinite; }
+        .status-dot.error { background: #dc3545; }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+        .btn {
+            background: #1a73e8;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: #1557b0; }
+        .btn-outline {
+            background: white;
+            color: #1a73e8;
+            border: 2px solid #1a73e8;
+        }
+        .btn-outline:hover { background: #e8f0fe; }
+        .search-area {
+            padding: 20px 24px;
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .search-input-wrapper input {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 12px;
+            outline: none;
+        }
+        .search-input-wrapper input:focus { border-color: #1a73e8; }
+        .stats {
+            font-size: 14px;
+            color: #5f6368;
+            margin-top: 12px;
+        }
+        .table-wrapper {
+            overflow-x: auto;
+            padding: 0 24px 24px 24px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th {
+            background: #f8f9fa;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid #e0e0e0;
+            position: sticky;
+            top: 0;
+        }
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+        }
+        tr:hover { background: #f1f8ff; }
+        .highlight {
+            background-color: #ffeb3b;
+            font-weight: bold;
+        }
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+        .footer {
+            padding: 16px 24px;
+            background: #f8f9fa;
+            font-size: 12px;
+            color: #5f6368;
+            text-align: center;
+            border-top: 1px solid #e0e0e0;
+        }
+        .config-area {
+            background: #e8f0fe;
+            padding: 16px 24px;
+            border-bottom: 1px solid #d0e0f0;
+        }
+        .config-input {
+            width: 100%;
+            padding: 10px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-top: 8px;
+            font-family: monospace;
+        }
+        label {
+            font-weight: 600;
+            font-size: 13px;
+            color: #1a73e8;
+        }
+        .hint {
+            font-size: 12px;
+            color: #5f6368;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🔍 Поиск сотрудников</h1>
+        <p>Данные с Яндекс Диска (обновляются по кнопке)</p>
+    </div>
+    
+    <div class="config-area">
+        <label>📎 Публичная ссылка на CSV файл (с Яндекс Диска):</label>
+        <input type="text" id="publicUrlInput" class="config-input" placeholder="https://disk.yandex.ru/d/xxxxx">
+        <div class="hint">
+            💡 Как получить ссылку:<br>
+            1. Загрузите CSV файл на Яндекс Диск<br>
+            2. ПКМ по файлу → «Поделиться» → включить доступ<br>
+            3. Скопируйте ссылку и вставьте сюда (один раз)
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div class="status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Введите ссылку и нажмите «Загрузить»</span>
+        </div>
+        <button class="btn" id="loadBtn">📥 Загрузить данные</button>
+        <button class="btn btn-outline" id="refreshBtn" style="display:none;">🔄 Обновить</button>
+    </div>
+
+    <div class="search-area">
+        <div class="search-input-wrapper">
+            <input type="text" id="searchInput" placeholder="Поиск: ФИО, тип документа, год, короб, ЮЛ..." disabled>
+        </div>
+        <div class="stats" id="stats">📊 Показано: <span id="count">0</span> из <span id="total">0</span></div>
+    </div>
+
+    <div class="table-wrapper">
+        <table id="dataTable">
+            <thead>
+                <tr><th>№ п/п</th><th>ФИО</th><th>Тип</th><th>Год документа</th><th>Короб</th><th>ЮЛ</th></tr>
+            </thead>
+            <tbody id="tableBody">
+                <tr><td colspan="6" class="empty">📌 Вставьте ссылку и нажмите «Загрузить»</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="footer">
+        💾 Ссылка сохраняется в браузере. При обновлении таблицы — замените файл на Диске и нажмите «Обновить».
+    </div>
+</div>
+
+<script>
+    let currentData = [];
+    const STORAGE_URL_KEY = 'yandex_csv_url';
+    
+    const publicUrlInput = document.getElementById('publicUrlInput');
+    const loadBtn = document.getElementById('loadBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const searchInput = document.getElementById('searchInput');
+    const tableBody = document.getElementById('tableBody');
+    const countSpan = document.getElementById('count');
+    const totalSpan = document.getElementById('total');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+
+    // Загружаем сохранённую ссылку
+    const savedUrl = localStorage.getItem(STORAGE_URL_KEY);
+    if (savedUrl) {
+        publicUrlInput.value = savedUrl;
+        setTimeout(() => {
+            if (savedUrl) loadFromPublicUrl();
+        }, 500);
+    }
+
+    function setStatus(text, type = 'loading') {
+        statusText.textContent = text;
+        statusDot.className = 'status-dot';
+        if (type === 'loading') statusDot.classList.add('loading');
+        else if (type === 'error') statusDot.classList.add('error');
+        else if (type === 'success') statusDot.classList.remove('loading', 'error');
+    }
+
+    async function loadFromPublicUrl() {
+        let publicUrl = publicUrlInput.value.trim();
+        
+        if (!publicUrl) {
+            setStatus('❌ Введите публичную ссылку', 'error');
+            return;
+        }
+        
+        localStorage.setItem(STORAGE_URL_KEY, publicUrl);
+        setStatus('🔍 Получение файла...', 'loading');
+        
+        try {
+            // Извлекаем ID из ссылки
+            let fileId = '';
+            if (publicUrl.includes('/d/')) {
+                fileId = publicUrl.split('/d/')[1].split('/')[0].split('?')[0];
+            } else if (publicUrl.includes('/i/')) {
+                fileId = publicUrl.split('/i/')[1].split('/')[0].split('?')[0];
+            } else {
+                throw new Error('Не распознан формат ссылки');
+            }
+            
+            // Получаем прямую ссылку через API Яндекса
+            const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/${fileId}`;
+            const apiResponse = await fetch(apiUrl);
+            
+            if (!apiResponse.ok) {
+                throw new Error('Файл не найден или доступ закрыт');
+            }
+            
+            const apiData = await apiResponse.json();
+            const downloadUrl = apiData.href;
+            
+            if (!downloadUrl) {
+                throw new Error('Не удалось получить ссылку для скачивания');
+            }
+            
+            setStatus('📥 Скачивание...', 'loading');
+            const fileResponse = await fetch(downloadUrl);
+            const text = await fileResponse.text();
+            
+            setStatus('🔄 Обработка...', 'loading');
+            
+            // Парсим CSV
+            const lines = text.split(/\r?\n/);
+            if (lines.length < 2) throw new Error('Файл пуст');
+            
+            let delimiter = ',';
+            if (lines[0].includes(';') && !lines[0].includes(',')) delimiter = ';';
+            
+            const data = [];
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line === '') continue;
+                
+                const values = line.split(delimiter).map(v => v.replace(/^"|"$/g, '').trim());
+                
+                if (values.length >= 6) {
+                    data.push({
+                        id: values[0],
+                        fio: values[1],
+                        type: values[2],
+                        year: values[3],
+                        box: values[4],
+                        legal: values[5]
+                    });
+                } else if (values.length >= 1 && values[0]) {
+                    data.push({
+                        id: values[0] || i,
+                        fio: values[1] || '',
+                        type: values[2] || '',
+                        year: values[3] || '',
+                        box: values[4] || '',
+                        legal: values[5] || ''
+                    });
+                }
+            }
+            
+            if (data.length === 0) {
+                throw new Error('Данные не найдены. Проверьте формат CSV.');
+            }
+            
+            currentData = data;
+            setStatus(`✅ Загружено ${data.length} записей`, 'success');
+            refreshBtn.style.display = 'inline-block';
+            searchInput.disabled = false;
+            renderTable();
+            
+        } catch (error) {
+            console.error(error);
+            setStatus(`❌ ${error.message}`, 'error');
+            tableBody.innerHTML = `<tr><td colspan="6" class="empty">⚠️ Ошибка: ${error.message}<br><br>Проверьте:<br>• Ссылка правильная?<br>• Доступ по ссылке включён?<br>• Файл в формате CSV?</td></tr>`;
+        }
+    }
+
+    function highlightText(text, searchTerm) {
+        if (!searchTerm || !text) return text || '';
+        const regex = new RegExp(`(${escapeRegex(searchTerm)})`, 'gi');
+        return String(text).replace(regex, `<span class="highlight">$1</span>`);
+    }
+
+    function escapeRegex(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
+    }
+
+    function renderTable() {
+        if (currentData.length === 0) {
+            if (!tableBody.innerHTML.includes('Ошибка')) {
+                tableBody.innerHTML = '<tr><td colspan="6" class="empty">📁 Нет данных</td></tr>';
+            }
+            totalSpan.textContent = '0';
+            countSpan.textContent = '0';
+            return;
+        }
+        
+        const searchTerm = searchInput.value.trim();
+        let filtered = currentData;
+        
+        if (searchTerm) {
+            const lowerTerm = searchTerm.toLowerCase();
+            filtered = currentData.filter(row => 
+                (row.fio || '').toLowerCase().includes(lowerTerm) ||
+                (row.type || '').toLowerCase().includes(lowerTerm) ||
+                (row.year || '').toLowerCase().includes(lowerTerm) ||
+                (row.box || '').toLowerCase().includes(lowerTerm) ||
+                (row.legal || '').toLowerCase().includes(lowerTerm)
+            );
+        }
+        
+        totalSpan.textContent = currentData.length;
+        countSpan.textContent = filtered.length;
+        
+        if (filtered.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="6" class="empty">🔍 Ничего не найдено</td></tr>';
+            return;
+        }
+        
+        let html = '';
+        for (const row of filtered) {
+            html += `<tr>
+                <td>${searchTerm ? highlightText(row.id, searchTerm) : escapeHtml(row.id)}</td>
+                <td>${searchTerm ? highlightText(row.fio, searchTerm) : escapeHtml(row.fio)}</td>
+                <td>${searchTerm ? highlightText(row.type, searchTerm) : escapeHtml(row.type)}</td>
+                <td>${searchTerm ? highlightText(row.year, searchTerm) : escapeHtml(row.year)}</td>
+                <td>${searchTerm ? highlightText(row.box, searchTerm) : escapeHtml(row.box)}</td>
+                <td>${searchTerm ? highlightText(row.legal, searchTerm) : escapeHtml(row.legal)}</td>
+            </tr>`;
+        }
+        tableBody.innerHTML = html;
+    }
+
+    loadBtn.addEventListener('click', loadFromPublicUrl);
+    refreshBtn.addEventListener('click', loadFromPublicUrl);
+    searchInput.addEventListener('input', renderTable);
+</script>
+</body>
+</html>
