@@ -160,30 +160,36 @@
             color: #5f6368;
             margin-top: 8px;
         }
+        .example-link {
+            background: #f0f0f0;
+            padding: 8px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
 <div class="container">
     <div class="header">
         <h1>🔍 Поиск сотрудников</h1>
-        <p>Данные с Яндекс Диска (обновляются по кнопке)</p>
+        <p>Данные с Яндекс Диска</p>
     </div>
     
     <div class="config-area">
-        <label>📎 Публичная ссылка на CSV файл (с Яндекс Диска):</label>
-        <input type="text" id="publicUrlInput" class="config-input" placeholder="https://disk.yandex.ru/d/xxxxx">
+        <label>📎 Публичная ссылка на CSV файл:</label>
+        <input type="text" id="publicUrlInput" class="config-input" placeholder="https://disk.yandex.ru/d/xxxxx" value="https://disk.yandex.ru/d/3LFFxCzdu68XvQ">
         <div class="hint">
-            💡 Как получить ссылку:<br>
-            1. Загрузите CSV файл на Яндекс Диск<br>
-            2. ПКМ по файлу → «Поделиться» → включить доступ<br>
-            3. Скопируйте ссылку и вставьте сюда (один раз)
+            💡 Ваша ссылка уже вставлена. Нажмите «Загрузить данные»
         </div>
     </div>
 
     <div class="status-bar">
         <div class="status">
             <div class="status-dot" id="statusDot"></div>
-            <span id="statusText">Введите ссылку и нажмите «Загрузить»</span>
+            <span id="statusText">Нажмите «Загрузить данные»</span>
         </div>
         <button class="btn" id="loadBtn">📥 Загрузить данные</button>
         <button class="btn btn-outline" id="refreshBtn" style="display:none;">🔄 Обновить</button>
@@ -202,18 +208,18 @@
                 <tr><th>№ п/п</th><th>ФИО</th><th>Тип</th><th>Год документа</th><th>Короб</th><th>ЮЛ</th></tr>
             </thead>
             <tbody id="tableBody">
-                <tr><td colspan="6" class="empty">📌 Вставьте ссылку и нажмите «Загрузить»</td></tr>
+                <tr><td colspan="6" class="empty">📌 Нажмите «Загрузить данные»</td></tr>
             </tbody>
         </table>
     </div>
     <div class="footer">
-        💾 Ссылка сохраняется в браузере. При обновлении таблицы — замените файл на Диске и нажмите «Обновить».
+        🔄 При обновлении таблицы — замените файл на Диске и нажмите «Обновить»
     </div>
 </div>
 
 <script>
     let currentData = [];
-    const STORAGE_URL_KEY = 'yandex_csv_url';
+    const STORAGE_URL_KEY = 'yandex_csv_url_v2';
     
     const publicUrlInput = document.getElementById('publicUrlInput');
     const loadBtn = document.getElementById('loadBtn');
@@ -229,9 +235,6 @@
     const savedUrl = localStorage.getItem(STORAGE_URL_KEY);
     if (savedUrl) {
         publicUrlInput.value = savedUrl;
-        setTimeout(() => {
-            if (savedUrl) loadFromPublicUrl();
-        }, 500);
     }
 
     function setStatus(text, type = 'loading') {
@@ -242,6 +245,7 @@
         else if (type === 'success') statusDot.classList.remove('loading', 'error');
     }
 
+    // Получение прямого CSV через публичную ссылку (работает в 2024-2025)
     async function loadFromPublicUrl() {
         let publicUrl = publicUrlInput.value.trim();
         
@@ -254,7 +258,7 @@
         setStatus('🔍 Получение файла...', 'loading');
         
         try {
-            // Извлекаем ID из ссылки
+            // Извлекаем ID
             let fileId = '';
             if (publicUrl.includes('/d/')) {
                 fileId = publicUrl.split('/d/')[1].split('/')[0].split('?')[0];
@@ -264,24 +268,28 @@
                 throw new Error('Не распознан формат ссылки');
             }
             
-            // Получаем прямую ссылку через API Яндекса
-            const apiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=https://disk.yandex.ru/d/${fileId}`;
-            const apiResponse = await fetch(apiUrl);
+            // Пробуем получить прямой CSV (новый способ - через прямой запрос)
+            // Яндекс иногда отдаёт CSV по ссылке с ?format=csv
+            let csvUrl = `https://disk.yandex.ru/d/${fileId}?format=csv`;
             
-            if (!apiResponse.ok) {
+            // Пробуем fetch с режимом no-cors (может не сработать)
+            const response = await fetch(csvUrl, {
+                mode: 'cors',
+                headers: {
+                    'Accept': 'text/csv,application/csv'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error('Не удалось загрузить файл');
+            }
+            
+            const text = await response.text();
+            
+            // Проверяем, не HTML ли это (если ошибка)
+            if (text.includes('<!DOCTYPE') || text.includes('<html')) {
                 throw new Error('Файл не найден или доступ закрыт');
             }
-            
-            const apiData = await apiResponse.json();
-            const downloadUrl = apiData.href;
-            
-            if (!downloadUrl) {
-                throw new Error('Не удалось получить ссылку для скачивания');
-            }
-            
-            setStatus('📥 Скачивание...', 'loading');
-            const fileResponse = await fetch(downloadUrl);
-            const text = await fileResponse.text();
             
             setStatus('🔄 Обработка...', 'loading');
             
@@ -289,28 +297,22 @@
             const lines = text.split(/\r?\n/);
             if (lines.length < 2) throw new Error('Файл пуст');
             
+            // Определяем разделитель
             let delimiter = ',';
-            if (lines[0].includes(';') && !lines[0].includes(',')) delimiter = ';';
+            const firstLine = lines[0];
+            if (firstLine.includes(';') && !firstLine.includes(',')) delimiter = ';';
+            else if (firstLine.includes('\t')) delimiter = '\t';
             
             const data = [];
             for (let i = 1; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (line === '') continue;
                 
-                const values = line.split(delimiter).map(v => v.replace(/^"|"$/g, '').trim());
+                const values = parseCSVLine(line, delimiter);
                 
-                if (values.length >= 6) {
+                if (values.length >= 1) {
                     data.push({
-                        id: values[0],
-                        fio: values[1],
-                        type: values[2],
-                        year: values[3],
-                        box: values[4],
-                        legal: values[5]
-                    });
-                } else if (values.length >= 1 && values[0]) {
-                    data.push({
-                        id: values[0] || i,
+                        id: values[0] || String(i),
                         fio: values[1] || '',
                         type: values[2] || '',
                         year: values[3] || '',
@@ -321,7 +323,7 @@
             }
             
             if (data.length === 0) {
-                throw new Error('Данные не найдены. Проверьте формат CSV.');
+                throw new Error('Данные не найдены');
             }
             
             currentData = data;
@@ -331,10 +333,31 @@
             renderTable();
             
         } catch (error) {
-            console.error(error);
+            console.error('Ошибка:', error);
             setStatus(`❌ ${error.message}`, 'error');
-            tableBody.innerHTML = `<tr><td colspan="6" class="empty">⚠️ Ошибка: ${error.message}<br><br>Проверьте:<br>• Ссылка правильная?<br>• Доступ по ссылке включён?<br>• Файл в формате CSV?</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="6" class="empty">⚠️ Ошибка: ${error.message}<br><br>Проверьте:<br>• Ссылка правильная?<br>• Доступ по ссылке включён?<br>• Файл в формате CSV?<br><br>💡 Попробуйте открыть ссылку в браузере — файл должен скачиваться</td></tr>`;
+            currentData = [];
+            renderTable();
         }
+    }
+
+    function parseCSVLine(line, delimiter) {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+                inQuotes = !inQuotes;
+            } else if (char === delimiter && !inQuotes) {
+                result.push(current);
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+        result.push(current);
+        return result.map(v => v.replace(/^"|"$/g, '').trim());
     }
 
     function highlightText(text, searchTerm) {
@@ -354,7 +377,7 @@
 
     function renderTable() {
         if (currentData.length === 0) {
-            if (!tableBody.innerHTML.includes('Ошибка')) {
+            if (!tableBody.innerHTML.includes('Ошибка') && !tableBody.innerHTML.includes('Нажмите')) {
                 tableBody.innerHTML = '<tr><td colspan="6" class="empty">📁 Нет данных</td></tr>';
             }
             totalSpan.textContent = '0';
